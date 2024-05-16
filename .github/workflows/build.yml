@@ -1,0 +1,48 @@
+name: Build
+
+on:
+  push:
+    branches:
+      - master
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  build:
+    name: Build and analyze
+    runs-on: ubuntu-20.04
+    env:
+      BUILD_WRAPPER_OUT_DIR: build_wrapper_output_directory # Directory where build-wrapper output will be placed
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # Shallow clones should be disabled for a better relevancy of analysis
+          submodules: recursive
+      - uses: lukka/get-cmake@v3.19.0
+      - name: Download Dependencies
+        run: |
+          wget https://apt.llvm.org/llvm.sh
+          chmod +x llvm.sh
+          sudo ./llvm.sh 11
+          sudo apt-get install -y build-essential pkg-config g++-10 xorg-dev libglu1-mesa-dev libopenal-dev libvulkan-dev
+      - name: Install sonar-scanner and build-wrapper
+        env:
+          SONAR_HOST_URL: ${{secrets.SONAR_HOST_URL}}
+        uses: SonarSource/sonarqube-github-c-cpp@v1
+      - name: Run build-wrapper with build of acid
+        env:
+          CC: clang-11
+          CXX: clang++-11
+          LD_LIBRARY_PATH: /usr/bin/clang++-11/lib
+        run: |
+          cmake --version
+          ninja --version
+          cmake -B Build -GNinja -DCMAKE_BUILD_TYPE=Release
+          build-wrapper-linux-x86-64 --out-dir ${{ env.BUILD_WRAPPER_OUT_DIR }} cmake --build Build
+      - name: Run sonar-scanner
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+          SONAR_HOST_URL: ${{secrets.SONAR_HOST_URL}}
+        run: |
+          sonar-scanner --define sonar.cfamily.build-wrapper-output="${{ env.BUILD_WRAPPER_OUT_DIR }}"
